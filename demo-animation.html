@@ -1,0 +1,1956 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Medisin - Animasi Demo Technical Test</title>
+<!--
+  CARA PAKAI:
+  1. Buka file ini di Chrome atau Edge (double click).
+  2. Otomatis memutar animasi & narasi suara (Web Speech API + Web Audio API).
+     Tekan F untuk fullscreen, Space untuk pause, panah kiri/kanan untuk scene,
+     R untuk ulang dari awal, V untuk menyalakan/mematikan Suara Narasi,
+     S untuk mengganti kecepatan suara narasi (0.82x / 0.90x / 0.78x).
+  3. Rekam layar dengan OBS (1080p) untuk dijadikan video demo teknis lengkap.
+  Semua animasi, suara, dan kode berjalan 100% offline tanpa internet.
+-->
+<style>
+  :root {
+    --bg: #0b1220;
+    --bg2: #0f1a2e;
+    --panel: #111c30;
+    --line: #1e2d47;
+    --text: #dbe6f5;
+    --muted: #8ba3c2;
+    --accent: #3b82f6;
+    --accent2: #22d3ee;
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --mono: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(1200px 800px at 20% 0%, #122340 0%, var(--bg) 55%, #070d18 100%);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+
+  /* ---------- Progress + controls ---------- */
+  #progress-wrap {
+    position: fixed; top: 0; left: 0; right: 0; height: 4px;
+    background: rgba(255,255,255,.06); z-index: 50;
+  }
+  #progress { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .1s linear; }
+  #controls {
+    position: fixed; right: 18px; bottom: 18px; z-index: 60;
+    display: flex; gap: 8px; align-items: center;
+    background: rgba(10,17,30,.85); border: 1px solid var(--line);
+    padding: 8px 12px; border-radius: 12px; backdrop-filter: blur(8px);
+    font-size: 12px; color: var(--muted); box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+  #controls button {
+    background: #16233a; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 11px; font-size: 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; transition: all .2s ease;
+  }
+  #controls button:hover { border-color: var(--accent); color: #fff; }
+  #controls button#btn-voice.active {
+    border-color: rgba(34,211,238,.6); color: var(--accent2);
+    background: rgba(34,211,238,.14);
+  }
+  #controls button#btn-voice.muted {
+    border-color: var(--line); color: var(--muted); opacity: .7;
+  }
+  #controls button#btn-speed {
+    font-family: var(--mono); color: var(--yellow); border-color: rgba(251,191,36,.35);
+    background: rgba(251,191,36,.08); font-size: 11.5px;
+  }
+  #controls button#btn-record {
+    color: #fff; border-color: rgba(239,68,68,.6);
+    background: rgba(239,68,68,.18); font-weight: 700;
+  }
+  #controls button#btn-record:hover {
+    background: rgba(239,68,68,.35); border-color: var(--red);
+  }
+  #controls button#btn-record.recording {
+    background: rgba(239,68,68,.30); border-color: var(--red);
+    color: var(--red); animation: rec-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    50% { box-shadow: 0 0 12px 2px rgba(239,68,68,.45); }
+  }
+  .rec-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red); margin-right: 2px;
+  }
+  .rec-dot.live { animation: rec-blink .8s steps(1) infinite; }
+  @keyframes rec-blink { 50% { opacity: 0; } }
+
+  /* Recording banner overlay */
+  .rec-banner {
+    position: fixed; top: 14px; right: 18px; z-index: 110;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(220,38,38,.92); color: #fff; padding: 7px 18px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; letter-spacing: .5px;
+    box-shadow: 0 6px 24px rgba(220,38,38,.5); backdrop-filter: blur(6px);
+    opacity: 0; pointer-events: none; transition: opacity .3s ease;
+  }
+  .rec-banner.show { opacity: 1; pointer-events: auto; }
+  .rec-banner .rec-timer { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .voice-indicator {
+    display: inline-flex; align-items: center; gap: 2px; height: 12px;
+  }
+  .voice-indicator span {
+    display: inline-block; width: 2px; height: 100%; background: var(--accent2);
+    border-radius: 1px; animation: wave 0.8s ease-in-out infinite;
+  }
+  .voice-indicator span:nth-child(2) { animation-delay: 0.2s; height: 70%; }
+  .voice-indicator span:nth-child(3) { animation-delay: 0.4s; height: 120%; }
+  @keyframes wave {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1.3); }
+  }
+
+  /* ---------- Startup Voice Prompt Banner ---------- */
+  .voice-banner {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; align-items: center; gap: 14px;
+    background: rgba(15, 26, 46, 0.96); border: 1px solid var(--accent2);
+    color: var(--text); padding: 9px 22px; border-radius: 999px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.7), 0 0 24px rgba(34,211,238,.35);
+    font-size: 13px; backdrop-filter: blur(8px);
+    transition: opacity .4s ease, transform .4s ease; cursor: pointer;
+  }
+  .voice-banner.hide { opacity: 0; pointer-events: none; transform: translate(-50%, -10px); }
+  .voice-banner button {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #04101e; border: none; border-radius: 999px; font-weight: 700;
+    padding: 5px 14px; font-size: 11px; cursor: pointer;
+  }
+  #scene-label { min-width: 70px; text-align: center; font-family: var(--mono); }
+
+  /* ---------- Scene base ---------- */
+  .scene {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    padding: 36px 54px 96px; opacity: 0; transform: translateY(14px) scale(.995);
+    transition: opacity .45s ease, transform .45s ease; pointer-events: none;
+  }
+  .scene.active { opacity: 1; transform: none; pointer-events: auto; }
+
+  h1 { font-size: 46px; letter-spacing: -.5px; }
+  h2 { font-size: 25px; font-weight: 600; text-align: center; }
+  .subtitle { color: var(--muted); font-size: 16px; }
+  .badge {
+    display: inline-block; font-family: var(--mono); font-size: 11px;
+    color: var(--accent2); border: 1px solid rgba(34,211,238,.35);
+    background: rgba(34,211,238,.08); border-radius: 999px; padding: 4px 12px;
+    letter-spacing: .6px; text-transform: uppercase;
+  }
+
+  /* ---------- Caption / narration ---------- */
+  #caption {
+    position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%);
+    max-width: 1040px; width: calc(100% - 140px);
+    text-align: center; font-size: 15px; line-height: 1.55; color: var(--text);
+    background: rgba(9,15,27,.90); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 22px; backdrop-filter: blur(8px);
+    opacity: 0; transition: opacity .3s ease; z-index: 40;
+    box-shadow: 0 16px 40px rgba(0,0,0,.6);
+  }
+  #caption.show { opacity: 1; }
+  #caption b { color: var(--accent2); }
+  #caption .key { color: var(--yellow); font-family: var(--mono); }
+
+  /* ---------- Code window ---------- */
+  .code-window {
+    width: min(1080px, 94vw); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  }
+  .code-head {
+    display: flex; align-items: center; justify-content: space-between; padding: 10px 16px;
+    background: #0d1626; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+  .code-head-left { display: flex; align-items: center; gap: 8px; }
+  .code-head-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .8px;
+    text-transform: uppercase; border-radius: 4px; padding: 2px 8px;
+    background: rgba(59,130,246,.15); color: var(--accent2); border: 1px solid rgba(59,130,246,.3);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2b3c58; }
+  .dot.r { background: #f87171; } .dot.y { background: #fbbf24; } .dot.g { background: #34d399; }
+  .code-head .file { margin-left: 8px; color: #9db6d8; font-weight: 500; }
+  pre {
+    font-family: var(--mono); font-size: 13px; line-height: 1.6;
+    padding: 16px 20px; overflow: auto; max-height: 48vh; color: #cdd9ea;
+  }
+  .k { color: #c084fc; }      /* keyword */
+  .s { color: #86efac; }      /* string */
+  .c { color: #64748b; font-style: italic; } /* comment */
+  .f { color: #7dd3fc; }      /* function */
+  .v { color: #fbbf24; }      /* variable */
+  .n { color: #fda4af; }      /* number */
+  .t { color: #93c5fd; }      /* type / class */
+  .hl { background: rgba(59,130,246,.16); border-left: 3px solid var(--accent); display: block; margin-left: -20px; padding-left: 17px; }
+  .hl2 { background: rgba(52,211,153,.12); border-left: 3px solid var(--green); display: block; margin-left: -20px; padding-left: 17px; }
+
+  /* ---------- Generic panels ---------- */
+  .row { display: flex; gap: 20px; width: min(1080px, 94vw); align-items: stretch; }
+  .panel {
+    flex: 1; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 18px; box-shadow: 0 16px 40px rgba(0,0,0,.35);
+  }
+  .panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 12px; font-weight: 600; }
+
+  /* ---------- Login mock ---------- */
+  .login-card {
+    width: 340px; background: #f8fafc; border-radius: 18px; padding: 26px 24px;
+    box-shadow: 0 30px 70px rgba(0,0,0,.5); color: #334155;
+  }
+  .login-logo { font-weight: 800; letter-spacing: 1px; color: #0b4f9e; font-size: 20px; text-align: center; margin-bottom: 18px; }
+  .field {
+    background: #eef2f7; border-radius: 999px; padding: 10px 16px; margin-bottom: 10px;
+    font-size: 13px; color: #475569; min-height: 38px; display: flex; align-items: center;
+  }
+  .field .caret { display: inline-block; width: 1px; height: 14px; background: #0b4f9e; margin-left: 1px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .captcha-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .captcha-img {
+    flex: 1; height: 44px; border-radius: 8px; position: relative; overflow: hidden;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(0,0,0,.10) 1.5px, transparent 2px),
+      radial-gradient(circle at 70% 60%, rgba(0,0,0,.10) 1.5px, transparent 2px),
+      radial-gradient(circle at 45% 80%, rgba(0,0,0,.08) 1.5px, transparent 2px),
+      linear-gradient(180deg, #e9eef6, #dde5f0);
+    display: flex; align-items: center; justify-content: center; gap: 2px;
+  }
+  .captcha-img span {
+    font-family: var(--mono); font-weight: 700; font-size: 21px; color: #1f3a5f;
+    display: inline-block;
+  }
+  .btn-primary {
+    background: #0b4f9e; color: #fff; border-radius: 999px; text-align: center;
+    padding: 11px; font-size: 12px; letter-spacing: 1px; font-weight: 700; margin-top: 6px;
+    cursor: pointer; transition: transform .12s ease, background .2s ease;
+  }
+  .btn-primary.press { transform: scale(.97); background: #083b77; }
+
+  /* ---------- DevTools payload ---------- */
+  .devtools { background: #0c1524; }
+  .devtabs { display: flex; gap: 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 12px; }
+  .devtabs .on { color: var(--accent2); border-bottom: 2px solid var(--accent2); padding-bottom: 6px; margin-bottom: -9px; }
+  .payload-line {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.9; opacity: 0;
+    transform: translateX(-6px); transition: opacity .3s ease, transform .3s ease;
+  }
+  .payload-line.show { opacity: 1; transform: none; }
+  .payload-line .pk { color: #93c5fd; }
+  .payload-line .pv-enc { color: var(--yellow); }
+  .payload-line .pv-plain { color: var(--green); }
+  .payload-line.flash { background: rgba(52,211,153,.10); border-radius: 4px; }
+
+  /* ---------- Pipeline ---------- */
+  .pipeline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+  .node {
+    background: #13233c; border: 1px solid var(--line); border-radius: 10px;
+    padding: 9px 15px; font-size: 12.5px; font-family: var(--mono); color: #bcd3ef;
+    opacity: 0; transform: translateY(8px); transition: all .35s ease;
+  }
+  .node.show { opacity: 1; transform: none; }
+  .node.hot { border-color: var(--accent); color: #fff; box-shadow: 0 0 20px rgba(59,130,246,.35); }
+  .arrow { color: var(--muted); font-family: var(--mono); opacity: 0; transition: opacity .3s ease; }
+  .arrow.show { opacity: 1; }
+
+  /* ---------- Dashboard ---------- */
+  .dash { width: min(1080px, 94vw); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .dash-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .dash-title { font-weight: 700; letter-spacing: .5px; }
+  .dash-title span { color: var(--accent2); }
+  .btn-add { background: var(--accent); color: #fff; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .7px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  td { padding: 11px 18px; border-bottom: 1px solid rgba(30,45,71,.5); font-family: var(--mono); font-size: 12.5px; }
+  tr.new-row { animation: rowIn .5s ease both; background: rgba(52,211,153,.07); }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  .count { display: inline-block; min-width: 22px; text-align: center; border-radius: 6px; background: #1b2c47; padding: 2px 8px; color: #cfe0f5; transition: all .3s ease; }
+  .count.bump { background: rgba(52,211,153,.25); color: var(--green); transform: scale(1.25); }
+
+  /* ---------- Modal ---------- */
+  .overlay {
+    position: absolute; inset: 0; background: rgba(4,8,15,.65);
+    display: flex; align-items: center; justify-content: center; opacity: 0;
+    transition: opacity .3s ease; pointer-events: none; z-index: 35;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .modal { width: 400px; background: #f8fafc; color: #334155; border-radius: 16px; padding: 22px; box-shadow: 0 30px 70px rgba(0,0,0,.6); }
+  .modal h4 { font-size: 15px; color: #0b4f9e; margin-bottom: 14px; }
+  .modal .field { background: #eef2f7; color: #475569; }
+  .modal .hint { font-size: 11px; color: #64748b; margin: 6px 0 10px; }
+  .patient-card { background: #eef7ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 10px 12px; font-size: 12px; color: #1e3a5f; margin: 8px 0; opacity: 0; transform: translateY(6px); transition: all .35s ease; }
+  .patient-card.show { opacity: 1; transform: none; }
+  .patient-card b { color: #0b4f9e; }
+  .ok-line { color: #15803d; font-size: 12px; font-weight: 600; opacity: 0; transition: opacity .3s ease; margin-top: 8px; }
+  .ok-line.show { opacity: 1; }
+
+  /* ---------- Terminal ---------- */
+  .term { width: min(1080px, 94vw); background: #050a12; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .term-body { padding: 16px 20px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; min-height: 250px; }
+  .term-line { opacity: 0; transition: opacity .25s ease; }
+  .term-line.show { opacity: 1; }
+  .term .prompt { color: var(--green); }
+  .term .ok { color: var(--green); }
+  .term .dim { color: var(--muted); }
+  .term .err { color: var(--red); }
+  .term .accent { color: var(--accent2); }
+
+  /* ---------- Layer cards (captcha) ---------- */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; width: min(1080px, 94vw); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; opacity: 0; transform: translateY(10px); transition: all .4s ease;
+  }
+  .card.show { opacity: 1; transform: none; }
+  .card .num { font-family: var(--mono); font-size: 11px; color: var(--accent2); margin-bottom: 8px; font-weight: 700; }
+  .card h4 { font-size: 13.5px; margin-bottom: 6px; }
+  .card p { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+  /* ---------- Counter (auto RM) ---------- */
+  .rm-counter {
+    font-family: var(--mono); font-size: 58px; font-weight: 800; letter-spacing: 2px;
+    color: var(--accent2); text-shadow: 0 0 40px rgba(34,211,238,.3);
+  }
+  .rm-note { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    h1 { font-size: 34px; }
+    .scene { padding: 30px 20px 100px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="progress-wrap"><div id="progress"></div></div>
+
+<div id="voice-banner" class="voice-banner" title="Klik untuk mengaktifkan audio narasi">
+  <span>🎙️ <b>Voice Narasi Aktif</b> &mdash; Klik di mana saja untuk mengaktifkan suara</span>
+  <button id="btn-banner-ok">Mulai Sekarang</button>
+</div>
+
+<div id="caption"></div>
+
+<div id="controls">
+  <span id="scene-label">1 / 13</span>
+  <button id="btn-prev" title="Scene Sebelumnya (Panah Kiri)">Prev</button>
+  <button id="btn-play" title="Play / Pause (Spasi)">Pause</button>
+  <button id="btn-next" title="Scene Berikutnya (Panah Kanan)">Next</button>
+  <button id="btn-replay" title="Ulang dari Awal (Tombol R)">Replay</button>
+  <button id="btn-voice" class="active" title="Nyalakan / Matikan Suara Narasi (Tombol V)">
+    <span id="voice-icon">🔊</span> Voice: <span id="voice-state">ON</span>
+    <span class="voice-indicator" id="voice-wave" style="display:none">
+      <span></span><span></span><span></span>
+    </span>
+  </button>
+  <button id="btn-speed" title="Ubah Kecepatan Suara Narasi (Tombol S: 0.82x -> 0.90x -> 0.78x)">⚡ <span id="speed-label">0.82x (Tenang)</span></button>
+  <button id="btn-full" title="Layar Penuh (Tombol F)">Fullscreen</button>
+  <button id="btn-record" title="Rekam sebagai video MP4 (Otomatis dari Scene 1)"><span class="rec-dot" id="rec-dot"></span> <span id="rec-label">🎬 Rekam MP4</span></button>
+</div>
+
+<div class="rec-banner" id="rec-banner">
+  <span class="rec-dot live"></span> MEREKAM &mdash; <span class="rec-timer" id="rec-timer">00:00</span>
+</div>
+
+<!-- ============================================================
+     SCENE 1 - TITLE (10 Detik)
+============================================================ -->
+<section class="scene" id="scene-1" data-duration="10000">
+  <div class="badge">Technical Test - Fullstack Developer</div>
+  <h1>Medisin</h1>
+  <p class="subtitle">Sistem Informasi Rekam Medik &amp; Kunjungan Pasien</p>
+  <p class="subtitle" style="font-size:13px;font-family:var(--mono);margin-top:-6px">
+    Laravel 11/13 + PHP 8.3 &nbsp;|&nbsp; MySQL &nbsp;|&nbsp; Sanctum &nbsp;|&nbsp; Vue 3 &nbsp;|&nbsp; 50 Automated Tests
+  </p>
+</section>
+
+<!-- ============================================================
+     SCENE 2 - LOGIN + PAYLOAD (36 Detik)
+============================================================ -->
+<section class="scene" id="scene-2" data-duration="36000">
+  <h2>Demo Web: Login + Captcha Gambar</h2>
+  <div class="row" style="justify-content:center;align-items:center">
+    <div class="login-card">
+      <div class="login-logo">MEDISIN</div>
+      <div class="field"><span id="in-user"></span></div>
+      <div class="field"><span id="in-pass"></span></div>
+      <div class="captcha-row">
+        <div class="captcha-img">
+          <span style="transform:rotate(-12deg)">K</span>
+          <span style="transform:rotate(9deg)">2</span>
+          <span style="transform:rotate(-6deg)">M</span>
+          <span style="transform:rotate(14deg)">N</span>
+          <span style="transform:rotate(-9deg)">S</span>
+        </div>
+        <div style="font-size:18px;color:#64748b">&#8635;</div>
+      </div>
+      <div class="field" style="text-transform:uppercase"><span id="in-captcha"></span></div>
+      <div class="btn-primary" id="btn-login">LOGIN</div>
+    </div>
+
+    <div class="panel devtools" style="max-width:540px">
+      <div class="devtabs">
+        <span>Headers</span><span class="on">Payload</span><span>Preview</span><span>Response</span>
+      </div>
+      <h3 style="margin-bottom:10px">Request Payload (Security Test)</h3>
+      <div class="payload-line" id="pl-1"><span class="pk">captcha_code</span>: <span class="pv-enc">"FJByiuB4EywR8snCSf7Xr8hK/7ouveL/XtFPkyJnb..."</span></div>
+      <div class="payload-line" id="pl-2"><span class="pk">password</span>: <span class="pv-enc">"QeftePJYnMkfkyt8JTKFCTJU/+UoAP9B2pR1h28TaB..."</span></div>
+      <div class="payload-line" id="pl-3"><span class="pk">tokenCaptcha</span>: <span class="pv-plain">"b0229394-45af-4502-904a-8694524afcbd"</span></div>
+      <div class="payload-line" id="pl-4"><span class="pk">user_name</span>: <span class="pv-enc">"gIw6itZt0kjXhz9UZJrZs67X7jtiyzZKNtKoNueWK7..."</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 3 - DATABASE MIGRATIONS (42 Detik - Spacious & Relaxed)
+============================================================ -->
+<section class="scene" id="scene-3" data-duration="42000">
+  <h2>Skema Database: Enkripsi NIK &amp; Email + Relasi Kunjungan</h2>
+  <div class="code-window">
+    <div class="code-head">
+      <div class="code-head-left">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="file">database/migrations/2026_11_11_create_pasiens_and_kunjungans.php</span>
+      </div>
+      <span class="code-head-tag">DATABASE MIGRATION</span>
+    </div>
+<pre><span class="c">// 1. Tabel pasiens: NIK Ciphertext AES-256 + Blind Index SHA-256 (Security Test)</span>
+<span class="t">Schema</span>::<span class="f">create</span>(<span class="s">'pasiens'</span>, <span class="k">function</span> (<span class="t">Blueprint</span> <span class="v">$table</span>): <span class="k">void</span> {
+    <span class="v">$table</span>-&gt;<span class="f">id</span>();
+    <span class="hl"><span class="v">$table</span>-&gt;<span class="f">string</span>(<span class="s">'no_rekam_medik'</span>)-&gt;<span class="f">unique</span>(); <span class="c">// Catatan #2: Kunci pencarian urut (RM0001, RM0002)</span></span>
+    <span class="v">$table</span>-&gt;<span class="f">string</span>(<span class="s">'nama_pasien'</span>);
+    <span class="hl2"><span class="v">$table</span>-&gt;<span class="f">text</span>(<span class="s">'nik'</span>); <span class="c">// Security Test: Ciphertext AES (Encryption-at-rest)</span>
+    <span class="v">$table</span>-&gt;<span class="f">string</span>(<span class="s">'nik_hash'</span>, <span class="n">64</span>)-&gt;<span class="f">nullable</span>()-&gt;<span class="f">unique</span>(); <span class="c">// Blind Index: O(1) Unique &amp; Search tanpa dekripsi DB</span></span>
+    <span class="v">$table</span>-&gt;<span class="f">text</span>(<span class="s">'alamat'</span>);
+    <span class="v">$table</span>-&gt;<span class="f">timestamps</span>();
+});
+
+<span class="c">// 2. Tabel kunjungans: Riwayat kunjungan dengan foreign key cascade (Catatan #1)</span>
+<span class="t">Schema</span>::<span class="f">create</span>(<span class="s">'kunjungans'</span>, <span class="k">function</span> (<span class="t">Blueprint</span> <span class="v">$table</span>): <span class="k">void</span> {
+    <span class="v">$table</span>-&gt;<span class="f">id</span>();
+    <span class="hl"><span class="v">$table</span>-&gt;<span class="f">foreignId</span>(<span class="s">'pasien_id'</span>)-&gt;<span class="f">constrained</span>(<span class="s">'pasiens'</span>)-&gt;<span class="f">cascadeOnDelete</span>();</span>
+    <span class="v">$table</span>-&gt;<span class="f">timestamp</span>(<span class="s">'tanggal_kunjungan'</span>)-&gt;<span class="f">useCurrent</span>();
+    <span class="v">$table</span>-&gt;<span class="f">text</span>(<span class="s">'keluhan'</span>)-&gt;<span class="f">nullable</span>();
+    <span class="v">$table</span>-&gt;<span class="f">text</span>(<span class="s">'catatan'</span>)-&gt;<span class="f">nullable</span>();
+});
+
+<span class="c">// 3. Tabel users: Email terenkripsi AES + email_hash blind index (Security Test Prompt)</span>
+<span class="hl2"><span class="v">$table</span>-&gt;<span class="f">text</span>(<span class="s">'email'</span>); <span class="c">// Ciphertext</span>  |  <span class="v">$table</span>-&gt;<span class="f">string</span>(<span class="s">'email_hash'</span>, <span class="n">64</span>)-&gt;<span class="f">unique</span>(); <span class="c">// Blind index</span></span></pre>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 4 - ROUTES CODE (28 Detik)
+============================================================ -->
+<section class="scene" id="scene-4" data-duration="28000">
+  <h2>Route: Peta Endpoint + Rate Limiting</h2>
+  <div class="code-window">
+    <div class="code-head">
+      <div class="code-head-left">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="file">routes/api.php</span>
+      </div>
+      <span class="code-head-tag">API ROUTING</span>
+    </div>
+<pre><span class="c">// 1. Endpoint Publik dengan Rate Limiting Ketat (Anti Brute-Force &amp; Bot)</span>
+<span class="hl"><span class="t">Route</span>::<span class="f">get</span>(<span class="s">'/captcha'</span>, [<span class="t">CaptchaController</span>::class, <span class="s">'generate'</span>])-&gt;<span class="f">middleware</span>(<span class="s">'throttle:30,1'</span>);</span>
+<span class="hl"><span class="t">Route</span>::<span class="f">post</span>(<span class="s">'/login'</span>, [<span class="t">AuthController</span>::class, <span class="s">'login'</span>])-&gt;<span class="f">middleware</span>(<span class="s">'throttle:10,1'</span>);</span>
+<span class="t">Route</span>::<span class="f">post</span>(<span class="s">'/security/encrypt'</span>, [<span class="t">SecurityController</span>::class, <span class="s">'encrypt'</span>]);
+
+<span class="c">// 2. Endpoint Terproteksi Bearer Token (Laravel Sanctum)</span>
+<span class="t">Route</span>::<span class="f">middleware</span>(<span class="s">'auth:sanctum'</span>)-&gt;<span class="f">group</span>(<span class="k">function</span> (): <span class="k">void</span> {
+    <span class="t">Route</span>::<span class="f">get</span>(<span class="s">'/pasien'</span>, [<span class="t">PasienController</span>::class, <span class="s">'index'</span>]);
+    <span class="t">Route</span>::<span class="f">post</span>(<span class="s">'/pasien'</span>, [<span class="t">PasienController</span>::class, <span class="s">'store'</span>]);
+    <span class="hl2"><span class="t">Route</span>::<span class="f">get</span>(<span class="s">'/pasien/search/{no_rekam_medik}'</span>, [<span class="t">PasienController</span>::class, <span class="s">'findByRekamMedik'</span>]);</span>
+    <span class="t">Route</span>::<span class="f">get</span>(<span class="s">'/pasien/{pasien}'</span>, [<span class="t">PasienController</span>::class, <span class="s">'show'</span>]);
+    <span class="t">Route</span>::<span class="f">post</span>(<span class="s">'/kunjungan'</span>, [<span class="t">KunjunganController</span>::class, <span class="s">'store'</span>]);
+    <span class="t">Route</span>::<span class="f">get</span>(<span class="s">'/kunjungan'</span>, [<span class="t">KunjunganController</span>::class, <span class="s">'index'</span>]);
+});</pre>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 5 - MODEL PASIEN & USER (38 Detik)
+============================================================ -->
+<section class="scene" id="scene-5" data-duration="38000">
+  <h2>Model Pasien: No Rekam Medik Otomatis &amp; Mutator Enkripsi</h2>
+  <div class="row">
+    <div class="code-window" style="flex:1.4">
+      <div class="code-head">
+        <div class="code-head-left">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="file">app/Models/Pasien.php</span>
+        </div>
+        <span class="code-head-tag">ELOQUENT MODEL</span>
+      </div>
+<pre><span class="k">protected static function</span> <span class="f">booted</span>(): <span class="k">void</span> {
+    <span class="v">static</span>::<span class="f">creating</span>(<span class="k">function</span> (<span class="t">Pasien</span> <span class="v">$pasien</span>): <span class="k">void</span> {
+        <span class="k">if</span> (<span class="f">empty</span>(<span class="v">$pasien</span>-&gt;no_rekam_medik)) {
+            <span class="v">$pasien</span>-&gt;no_rekam_medik = <span class="v">static</span>::<span class="f">generateNextNoRekamMedik</span>();
+        }
+    });
+}
+
+<span class="hl"><span class="k">public static function</span> <span class="f">generateNextNoRekamMedik</span>(): <span class="k">string</span> {
+    <span class="v">$allRms</span> = <span class="v">static</span>::<span class="f">query</span>()-&gt;<span class="f">pluck</span>(<span class="s">'no_rekam_medik'</span>)
+        -&gt;<span class="f">filter</span>(<span class="k">fn</span> (<span class="v">$rm</span>) =&gt; <span class="f">is_string</span>(<span class="v">$rm</span>) &amp;&amp; <span class="f">preg_match</span>(<span class="s">'/^RM(\\d+)$/i'</span>, <span class="v">$rm</span>))
+        -&gt;<span class="f">map</span>(<span class="k">fn</span> (<span class="v">$rm</span>) =&gt; (<span class="k">int</span>) <span class="f">preg_replace</span>(<span class="s">'/^RM/i'</span>, <span class="s">''</span>, <span class="v">$rm</span>));
+    <span class="v">$maxNumber</span> = <span class="v">$allRms</span>-&gt;<span class="f">max</span>() ?? <span class="n">0</span>;
+    <span class="k">return</span> <span class="f">sprintf</span>(<span class="s">'RM%04d'</span>, <span class="v">$maxNumber</span> + <span class="n">1</span>);
+}</span>
+
+<span class="hl2"><span class="k">public function</span> <span class="f">setNikAttribute</span>(<span class="v">?string</span> <span class="v">$value</span>): <span class="k">void</span> {
+    <span class="v">$this</span>-&gt;attributes[<span class="s">'nik'</span>] = <span class="t">Crypt</span>::<span class="f">encryptString</span>(<span class="v">$value</span>);
+    <span class="v">$this</span>-&gt;attributes[<span class="s">'nik_hash'</span>] = <span class="f">hash</span>(<span class="s">'sha256'</span>, <span class="f">trim</span>(<span class="v">$value</span>));
+}</span>
+<span class="k">public function</span> <span class="f">kunjungans</span>(): <span class="t">HasMany</span> { <span class="k">return</span> <span class="v">$this</span>-&gt;<span class="f">hasMany</span>(<span class="t">Kunjungan</span>::class); }</pre>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:0.7">
+      <h3>Format Otomatis (Catatan #2)</h3>
+      <div class="rm-counter" id="rm-counter">RM0001</div>
+      <div class="rm-note" id="rm-note">pasien ke-1</div>
+      <div style="font-size:11.5px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.5">
+        RM0001 &rarr; RM0002 &rarr; RM0003<br>
+        Otomatis via event <b>creating</b>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 6 - SECURITY SERVICE (30 Detik)
+============================================================ -->
+<section class="scene" id="scene-6" data-duration="30000">
+  <h2>SecurityService: Enkripsi AES-256-CBC Payload</h2>
+  <div class="code-window">
+    <div class="code-head">
+      <div class="code-head-left">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="file">app/Services/SecurityService.php</span>
+      </div>
+      <span class="code-head-tag">CRYPTOGRAPHY SERVICE</span>
+    </div>
+<pre><span class="c">// 1. Enkripsi: IV acak 16 byte per request &rarr; Output Base64(IV + Ciphertext)</span>
+<span class="k">public function</span> <span class="f">encrypt</span>(<span class="t">string</span> <span class="v">$value</span>): <span class="t">string</span> {
+    <span class="hl"><span class="v">$iv</span> = <span class="f">openssl_random_pseudo_bytes</span>(<span class="n">16</span>);</span>
+    <span class="v">$cipher</span> = <span class="f">openssl_encrypt</span>(<span class="v">$value</span>, <span class="s">'AES-256-CBC'</span>, <span class="v">$this</span>-&gt;key, <span class="n">OPENSSL_RAW_DATA</span>, <span class="v">$iv</span>);
+    <span class="hl2"><span class="k">return</span> <span class="f">base64_encode</span>(<span class="v">$iv</span> . <span class="v">$cipher</span>);</span>
+}
+
+<span class="c">// 2. Dekripsi multi-format (Web Crypto frontend, Postman CryptoJS, Laravel Crypt)</span>
+<span class="k">public function</span> <span class="f">decrypt</span>(<span class="v">?string</span> <span class="v">$val</span>): <span class="v">?string</span> {
+    <span class="k">if</span> (!<span class="v">$val</span>) <span class="k">return</span> <span class="v">$val</span>;
+    <span class="k">try</span> { <span class="k">return</span> <span class="t">Crypt</span>::<span class="f">decryptString</span>(<span class="v">$val</span>); } <span class="k">catch</span> (<span class="t">\Throwable</span>) {}
+    <span class="k">if</span> (<span class="f">str_starts_with</span>(<span class="v">$val</span>, <span class="s">'U2FsdGVkX1'</span>)) <span class="k">return</span> <span class="v">$this</span>-&gt;<span class="f">decryptCryptoJS</span>(<span class="v">$val</span>, <span class="v">$this</span>-&gt;key);
+    <span class="v">$raw</span> = <span class="f">base64_decode</span>(<span class="v">$val</span>, <span class="k">true</span>);
+    <span class="k">if</span> (<span class="v">$raw</span> &amp;&amp; <span class="f">strlen</span>(<span class="v">$raw</span>) &gt; <span class="n">16</span>) {
+        <span class="k">return</span> <span class="f">openssl_decrypt</span>(<span class="f">substr</span>(<span class="v">$raw</span>, <span class="n">16</span>), <span class="s">'AES-256-CBC'</span>, <span class="v">$this</span>-&gt;key, <span class="n">OPENSSL_RAW_DATA</span>, <span class="f">substr</span>(<span class="v">$raw</span>, <span class="n">0</span>, <span class="n">16</span>));
+    }
+    <span class="k">return</span> <span class="v">$val</span>; <span class="c">// Fallback plaintext</span>
+}</pre>
+  </div>
+  <div class="pipeline" id="pipe-enc">
+    <div class="node" id="p-node-1">Plaintext: "admin"</div>
+    <div class="arrow" id="p-arr-1">&rarr;</div>
+    <div class="node" id="p-node-2">AES-256-CBC + IV 16 Byte Acak</div>
+    <div class="arrow" id="p-arr-2">&rarr;</div>
+    <div class="node" id="p-node-3">Base64(IV + Ciphertext)</div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 7 - CAPTCHA LAYERS (34 Detik)
+============================================================ -->
+<section class="scene" id="scene-7" data-duration="34000">
+  <h2>CaptchaService: 4 Lapis Keamanan Anti-Bot</h2>
+  <div class="cards">
+    <div class="card" id="cc-1">
+      <div class="num">LAYER 01</div>
+      <h4>Gambar Distorsi GD</h4>
+      <p>Kode dirender acak dengan rotasi per karakter, garis, dan titik noise. Teks plain tidak pernah dikirim ke klien.</p>
+    </div>
+    <div class="card" id="cc-2">
+      <div class="num">LAYER 02</div>
+      <h4>Cache Hash SHA-256</h4>
+      <p>Cache backend hanya menyimpan SHA-256(code)|ip. Bahkan jika cache bocor, kode asli tetap aman tidak terbaca.</p>
+    </div>
+    <div class="card" id="cc-3">
+      <div class="num">LAYER 03</div>
+      <h4>Token Sekali Pakai</h4>
+      <p>Token UUID langsung dihapus (Cache::forget) saat percobaan verifikasi pertama. Anti replay attack 100%.</p>
+    </div>
+    <div class="card" id="cc-4">
+      <div class="num">LAYER 04</div>
+      <h4>IP Binding &amp; Throttle</h4>
+      <p>Token terikat IP peminta. Login dibatasi 10 req/menit dan captcha 30 req/menit via middleware throttle.</p>
+    </div>
+  </div>
+  <div class="code-window" style="margin-top:6px">
+    <div class="code-head">
+      <div class="code-head-left">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="file">app/Services/CaptchaService.php</span>
+      </div>
+      <span class="code-head-tag">ANTI-BOT ENGINE</span>
+    </div>
+<pre><span class="c">// Penyimpanan SHA-256 bound ke IP klien &amp; Verifikasi anti-timing attack (hash_equals)</span>
+<span class="hl"><span class="t">Cache</span>::<span class="f">put</span>(<span class="s">"captcha:{$token}"</span>, <span class="f">hash</span>(<span class="s">'sha256'</span>, <span class="v">$code</span>) . <span class="s">'|'</span> . <span class="v">$ip</span>, <span class="v">$this</span>-&gt;<span class="f">ttl</span>());</span>
+<span class="t">Cache</span>::<span class="f">forget</span>(<span class="s">"captcha:{$token}"</span>); <span class="c">// Layer 3: Sekali pakai</span>
+<span class="hl2"><span class="k">return</span> <span class="f">hash_equals</span>(<span class="v">$expectedHash</span>, <span class="f">hash</span>(<span class="s">'sha256'</span>, <span class="f">strtoupper</span>(<span class="f">trim</span>(<span class="v">$code</span>))));</span></pre>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 8 - FORM REQUESTS (38 Detik)
+============================================================ -->
+<section class="scene" id="scene-8" data-duration="38000">
+  <h2>FormRequest: Dekripsi Otomatis &amp; Validasi Blind Index</h2>
+  <div class="code-window">
+    <div class="code-head">
+      <div class="code-head-left">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="file">app/Http/Requests (LoginRequest.php, StorePasienRequest.php, StoreKunjunganRequest.php)</span>
+      </div>
+      <span class="code-head-tag">VALIDATION LAYER</span>
+    </div>
+<pre><span class="c">// 1. LoginRequest: Dekripsi transparan di prepareForValidation sebelum aturan validasi jalan</span>
+<span class="k">protected function</span> <span class="f">prepareForValidation</span>(): <span class="k">void</span> {
+    <span class="v">$sec</span> = <span class="f">app</span>(<span class="t">SecurityService</span>::class);
+    <span class="hl"><span class="v">$this</span>-&gt;<span class="f">merge</span>([
+        <span class="s">'username'</span> =&gt; <span class="v">$sec</span>-&gt;<span class="f">decrypt</span>((<span class="t">string</span>) (<span class="v">$this</span>-&gt;<span class="f">input</span>(<span class="s">'username'</span>) ?? <span class="v">$this</span>-&gt;<span class="f">input</span>(<span class="s">'user_name'</span>))),
+        <span class="s">'password'</span> =&gt; <span class="v">$sec</span>-&gt;<span class="f">decrypt</span>((<span class="t">string</span>) <span class="v">$this</span>-&gt;<span class="f">input</span>(<span class="s">'password'</span>)),
+        <span class="s">'captcha_code'</span> =&gt; <span class="v">$sec</span>-&gt;<span class="f">decrypt</span>((<span class="t">string</span>) <span class="v">$this</span>-&gt;<span class="f">input</span>(<span class="s">'captcha_code'</span>)),
+    ]);</span>
+}
+
+<span class="c">// 2. StorePasienRequest: Validasi NIK angka 10-20 digit + Duplikat via Blind Index</span>
+<span class="k">public function</span> <span class="f">rules</span>(): <span class="t">array</span> { <span class="k">return</span> [<span class="s">'nik'</span> =&gt; [<span class="s">'required'</span>, <span class="s">'regex:/^[0-9]{10,20}$/'</span>]]; }
+<span class="hl2"><span class="v">$hash</span> = <span class="f">hash</span>(<span class="s">'sha256'</span>, <span class="f">trim</span>((<span class="t">string</span>) <span class="v">$this</span>-&gt;<span class="f">input</span>(<span class="s">'nik'</span>)));
+<span class="k">if</span> (<span class="t">Pasien</span>::<span class="f">where</span>(<span class="s">'nik_hash'</span>, <span class="v">$hash</span>)-&gt;<span class="f">exists</span>()) { <span class="v">$validator</span>-&gt;<span class="f">errors</span>()-&gt;<span class="f">add</span>(<span class="s">'nik'</span>, <span class="s">'NIK sudah terdaftar.'</span>); }</span>
+
+<span class="c">// 3. StoreKunjunganRequest: Auto-resolve No RM ke pasien_id (Catatan #3: klien cukup kirim No RM)</span>
+<span class="hl"><span class="k">if</span> (!<span class="v">$this</span>-&gt;<span class="f">has</span>(<span class="s">'pasien_id'</span>) &amp;&amp; <span class="v">$this</span>-&gt;<span class="f">filled</span>(<span class="s">'no_rekam_medik'</span>)) {
+    <span class="v">$p</span> = <span class="t">Pasien</span>::<span class="f">where</span>(<span class="s">'no_rekam_medik'</span>, <span class="v">$this</span>-&gt;<span class="f">input</span>(<span class="s">'no_rekam_medik'</span>))-&gt;<span class="f">first</span>();
+    <span class="k">if</span> (<span class="v">$p</span>) <span class="v">$this</span>-&gt;<span class="f">merge</span>([<span class="s">'pasien_id'</span> =&gt; <span class="v">$p</span>-&gt;<span class="v">id</span>]);
+}</span></pre>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 9 - CONTROLLER ARCHITECTURE (32 Detik)
+============================================================ -->
+<section class="scene" id="scene-9" data-duration="32000">
+  <h2>Controller: Agregasi Jml Kunjungan &amp; Pencarian No RM</h2>
+  <div class="code-window">
+    <div class="code-head">
+      <div class="code-head-left">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="file">app/Http/Controllers/Api/PasienController.php &amp; KunjunganController.php</span>
+      </div>
+      <span class="code-head-tag">CONTROLLER LAYER</span>
+    </div>
+<pre><span class="c">// Catatan #1: Jumlah Kunjungan dihitung dari berapa kali kunjungan dibuat (Anti N+1)</span>
+<span class="k">public function</span> <span class="f">index</span>(<span class="t">Request</span> <span class="v">$request</span>): <span class="t">JsonResponse</span> {
+    <span class="hl"><span class="v">$query</span> = <span class="t">Pasien</span>::<span class="f">query</span>()-&gt;<span class="f">withCount</span>(<span class="s">'kunjungans as jml_kunjungan'</span>);</span>
+
+    <span class="k">if</span> (<span class="v">$search</span> = <span class="v">$request</span>-&gt;<span class="f">input</span>(<span class="s">'search'</span>)) {
+        <span class="v">$hash</span> = <span class="f">hash</span>(<span class="s">'sha256'</span>, <span class="f">trim</span>((<span class="t">string</span>) <span class="v">$search</span>));
+        <span class="v">$query</span>-&gt;<span class="f">where</span>(<span class="k">fn</span> (<span class="v">$q</span>) =&gt; <span class="v">$q</span>-&gt;<span class="f">where</span>(<span class="s">'nama_pasien'</span>, <span class="s">'like'</span>, <span class="s">"%{$search}%"</span>)
+            -&gt;<span class="f">orWhere</span>(<span class="s">'no_rekam_medik'</span>, <span class="s">'like'</span>, <span class="s">"%{$search}%"</span>)
+            -&gt;<span class="f">orWhere</span>(<span class="s">'nik_hash'</span>, <span class="v">$hash</span>));
+    }
+    <span class="k">return</span> <span class="f">response</span>()-&gt;<span class="f">json</span>([<span class="s">'success'</span> =&gt; <span class="k">true</span>, <span class="s">'data'</span> =&gt; <span class="t">PasienResource</span>::<span class="f">collection</span>(<span class="v">$query</span>-&gt;<span class="f">get</span>())]);
+}
+
+<span class="c">// Catatan #3: Endpoint khusus modal "Buat Kunjungan" (Input No RM &rarr; Muncul Data Pasien)</span>
+<span class="hl2"><span class="k">public function</span> <span class="f">findByRekamMedik</span>(<span class="t">string</span> <span class="v">$no_rekam_medik</span>): <span class="t">JsonResponse</span> {
+    <span class="v">$pasien</span> = <span class="t">Pasien</span>::<span class="f">where</span>(<span class="s">'no_rekam_medik'</span>, <span class="v">$no_rekam_medik</span>)
+        -&gt;<span class="f">withCount</span>(<span class="s">'kunjungans as jml_kunjungan'</span>)-&gt;<span class="f">firstOrFail</span>();
+    <span class="k">return</span> <span class="f">response</span>()-&gt;<span class="f">json</span>([<span class="s">'success'</span> =&gt; <span class="k">true</span>, <span class="s">'data'</span> =&gt; <span class="k">new</span> <span class="t">PasienResource</span>(<span class="v">$pasien</span>)]);
+}</span></pre>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 10 - DASHBOARD + PATIENT + VISIT (52 Detik)
+============================================================ -->
+<section class="scene" id="scene-10" data-duration="52000">
+  <h2>Dashboard: Pasien, No RM Otomatis, Kunjungan</h2>
+  <div class="dash">
+    <div class="dash-head">
+      <div class="dash-title">DATA <span>PASIEN</span></div>
+      <div style="display:flex;gap:10px">
+        <div class="btn-add" id="btn-tambah" style="background:#0b4f9e">TAMBAH PASIEN</div>
+        <div class="btn-add" id="btn-kunjungan" style="background:#16a34a">BUAT KUNJUNGAN</div>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>NO</th><th>NO REKAM MEDIK</th><th>NAMA PASIEN</th><th>ALAMAT</th><th>JML KUNJUNGAN</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr id="row-rm1">
+          <td>1</td><td>RM0001</td><td>NURFAZA M.</td><td>Jl Wisata 2 No 18</td><td><span class="count">8</span></td>
+        </tr>
+        <tr id="row-rm2">
+          <td>2</td><td>RM0002</td><td>NURFAZA D.</td><td>Jl Wisata 2 No 18</td><td><span class="count" id="count-rm2">0</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="modal" id="modal">
+      <h4 id="modal-title">Tambah Pasien</h4>
+      <div class="hint" id="m-hint">No Rekam Medik dibuat otomatis oleh sistem</div>
+      <div class="field" id="m-nama-field"><span id="m-nama"></span><span class="caret"></span></div>
+      <div class="field" id="m-nik-field"><span id="m-nik"></span></div>
+      <div class="field" id="m-alamat-field"><span id="m-alamat"></span></div>
+      <div class="patient-card" id="m-patient">
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">PASIEN DITEMUKAN:</div>
+        <div id="m-patient-detail"></div>
+      </div>
+      <div class="btn-primary" id="m-submit">SIMPAN</div>
+      <div class="ok-line" id="m-ok">Kunjungan berhasil dibuat!</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 11 - DATABASE PROOF (30 Detik)
+============================================================ -->
+<section class="scene" id="scene-11" data-duration="30000">
+  <h2>Bukti Enkripsi Database MySQL</h2>
+  <div class="term">
+    <div class="term-body" id="db-term"></div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 12 - AUTOMATED TEST SUITE (30 Detik)
+============================================================ -->
+<section class="scene" id="scene-12" data-duration="30000">
+  <h2>Automated Test Suite: 50 Passed (169 Assertions)</h2>
+  <div class="term">
+    <div class="term-body" id="test-term"></div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SCENE 13 - SUMMARY (20 Detik)
+============================================================ -->
+<section class="scene" id="scene-13" data-duration="20000">
+  <div class="badge">Kesimpulan &amp; Standar Produksi</div>
+  <h1>100% Sesuai Spesifikasi</h1>
+  <p class="subtitle" style="max-width:760px;text-align:center">
+    Seluruh persyaratan teknis Figma, Catatan #1 sampai #4, Security Test payload &amp; database encryption, serta Postman collection telah terpenuhi lengkap.
+  </p>
+  <div class="cards" style="margin-top:10px">
+    <div class="card show">
+      <div class="num">&#10003; AUTENTIKASI</div>
+      <h4>Token Sanctum + Captcha</h4>
+      <p>Captcha gambar PNG + SHA-256 bound IP + rate limiting.</p>
+    </div>
+    <div class="card show">
+      <div class="num">&#10003; KEAMANAN</div>
+      <h4>AES-256 &amp; Blind Index</h4>
+      <p>NIK dan Email tersimpan ciphertext, dicari via blind index O(1).</p>
+    </div>
+    <div class="card show">
+      <div class="num">&#10003; REKAM MEDIK</div>
+      <h4>Generate RM Otomatis</h4>
+      <p>Format urut RM0001, RM0002 terintegrasi lifecycle Eloquent.</p>
+    </div>
+    <div class="card show">
+      <div class="num">&#10003; KUNJUNGAN</div>
+      <h4>withCount &amp; Auto-Resolve</h4>
+      <p>Cukup input No RM data muncul, agregat kunjungan anti N+1.</p>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ============================================================
+   Sound Effects (Web Audio API - Offline & Ringan)
+============================================================ */
+const SoundFX = {
+  ctx: null,
+  enabled: true,
+
+  init() {
+    if (!this.ctx && (window.AudioContext || window.webkitAudioContext)) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AudioCtx();
+    }
+  },
+
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  },
+
+  tick() {
+    if (!this.enabled || !this.ctx) return;
+    this.resume();
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(520 + Math.random() * 50, t);
+      gain.gain.setValueAtTime(0.012, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.035);
+    } catch (e) {}
+  },
+
+  click() {
+    if (!this.enabled || !this.ctx) return;
+    this.resume();
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(320, t);
+      gain.gain.setValueAtTime(0.035, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.05);
+    } catch (e) {}
+  },
+
+  chime() {
+    if (!this.enabled || !this.ctx) return;
+    this.resume();
+    try {
+      const t = this.ctx.currentTime;
+      [523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t + idx * 0.08);
+        gain.gain.setValueAtTime(0.03, t + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + idx * 0.08 + 0.35);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t + idx * 0.08);
+        osc.stop(t + idx * 0.08 + 0.35);
+      });
+    } catch (e) {}
+  }
+};
+
+/* ============================================================
+   Voiceover Narration Engine (Web Speech API)
+   Pacing: Tenang, Santai, Jelas, Tidak Terburu-buru
+   Default: 0.82x (Natural & Calibrated Indonesian Speech)
+============================================================ */
+const VoiceEngine = {
+  enabled: true,
+  rate: 0.82, // Kecepatan tenang & santai, artikulasi jelas
+  currentUtterance: null,
+  selectedVoice: null,
+  voices: [],
+
+  init() {
+    if (!('speechSynthesis' in window)) return;
+    const updateVoices = () => {
+      this.voices = window.speechSynthesis.getVoices() || [];
+      // Prioritaskan suara Bahasa Indonesia alami
+      this.selectedVoice =
+        this.voices.find((v) => (v.lang === 'id-ID' || v.lang === 'id_ID' || v.lang.toLowerCase().startsWith('id')) && !v.name.includes('eSpeak')) ||
+        this.voices.find((v) => v.name.toLowerCase().includes('indonesia') || v.name.toLowerCase().includes('gadis') || v.name.toLowerCase().includes('andika')) ||
+        this.voices.find((v) => v.lang.toLowerCase().startsWith('id')) ||
+        this.voices.find((v) => v.default) ||
+        this.voices[0] || null;
+    };
+
+    updateVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  },
+
+  speakAsync(text, token) {
+    return new Promise((resolve) => {
+      if (!text || !text.trim() || token !== runToken) {
+        resolve();
+        return;
+      }
+
+      const wave = document.getElementById('voice-wave');
+
+      // Jika voice dinonaktifkan atau browser tidak support
+      if (!this.enabled || !('speechSynthesis' in window)) {
+        const wordCount = text.split(/\s+/).length;
+        const readTime = Math.max(3500, wordCount * 450);
+        setTimeout(resolve, readTime);
+        return;
+      }
+
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+
+      const utter = new SpeechSynthesisUtterance(text);
+
+      if (this.selectedVoice) {
+        utter.voice = this.selectedVoice;
+        utter.lang = this.selectedVoice.lang || 'id-ID';
+      } else {
+        utter.lang = 'id-ID';
+      }
+
+      utter.rate = this.rate;
+      utter.pitch = 1.0;
+      utter.volume = 1.0;
+
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (wave) wave.style.display = 'none';
+        resolve();
+      };
+
+      utter.onstart = () => {
+        if (wave) wave.style.display = 'inline-flex';
+      };
+      utter.onend = finish;
+      utter.onerror = finish;
+
+      // Safety timeout: jika browser tidak memanggil onend (audio bug), resolve otomatis
+      const wordCount = text.split(/\s+/).length;
+      const maxMs = Math.max(14000, (wordCount * 850) + 7000);
+      const timer = setTimeout(finish, maxMs);
+
+      const safeFinish = () => {
+        clearTimeout(timer);
+        finish();
+      };
+      utter.onend = safeFinish;
+
+      this.currentUtterance = utter;
+      try {
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        finish();
+      }
+    });
+  },
+
+  pause() {
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.pause(); } catch (e) {}
+    }
+  },
+
+  resume() {
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.resume(); } catch (e) {}
+    }
+  },
+
+  stop() {
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
+    const wave = document.getElementById('voice-wave');
+    if (wave) wave.style.display = 'none';
+  },
+
+  toggle() {
+    this.enabled = !this.enabled;
+    const btn = document.getElementById('btn-voice');
+    const icon = document.getElementById('voice-icon');
+    const state = document.getElementById('voice-state');
+
+    if (this.enabled) {
+      if (btn) { btn.classList.remove('muted'); btn.classList.add('active'); }
+      if (icon) icon.textContent = '🔊';
+      if (state) state.textContent = 'ON';
+      if (lastSpokenVoiceText) {
+        this.speakAsync(lastSpokenVoiceText, runToken);
+      }
+    } else {
+      this.stop();
+      if (btn) { btn.classList.remove('active'); btn.classList.add('muted'); }
+      if (icon) icon.textContent = '🔇';
+      if (state) state.textContent = 'OFF';
+    }
+    return this.enabled;
+  },
+
+  cycleSpeed() {
+    // 0.82x (Tenang & Jelas) -> 0.90x (Sedang) -> 0.78x (Sangat Tenang) -> 0.82x
+    if (this.rate === 0.82) {
+      this.rate = 0.90;
+    } else if (this.rate === 0.90) {
+      this.rate = 0.78;
+    } else {
+      this.rate = 0.82;
+    }
+    const label = document.getElementById('speed-label');
+    if (label) {
+      let desc = 'Tenang';
+      if (this.rate === 0.90) desc = 'Sedang';
+      if (this.rate === 0.78) desc = 'Sangat Tenang';
+      label.textContent = this.rate.toFixed(2) + 'x (' + desc + ')';
+    }
+    return this.rate;
+  }
+};
+
+/* ============================================================
+   Timeline & Caption Engine
+============================================================ */
+const scenes = Array.from(document.querySelectorAll('.scene'));
+const total = scenes.length;
+const progress = document.getElementById('progress');
+const sceneLabel = document.getElementById('scene-label');
+const btnPlay = document.getElementById('btn-play');
+const caption = document.getElementById('caption');
+
+let current = 0;
+let sceneStart = 0;
+let paused = false;
+let pausedAt = 0;
+let rafId = null;
+let runToken = 0;
+let lastSpokenVoiceText = '';
+let currentRunnerActive = false;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * narrate(): Menampilkan caption HTML dan MEMASTIKAN narasi suara selesai 100%
+ * sebelum memberi jeda bernapas (pauseAfter) dan melanjutkan baris berikutnya.
+ * Menjamin suara tidak pernah terpotong!
+ */
+async function narrate(htmlText, voiceText, token, pauseAfter = 2200) {
+  if (token !== runToken) return;
+  caption.innerHTML = htmlText;
+  caption.classList.add('show');
+
+  lastSpokenVoiceText = voiceText || caption.textContent.trim();
+  await VoiceEngine.speakAsync(lastSpokenVoiceText, token);
+
+  if (token !== runToken) return;
+  if (pauseAfter > 0) {
+    await sleep(pauseAfter);
+  }
+}
+
+function captionHide() {
+  caption.classList.remove('show');
+}
+
+function resetSceneAnimations() {
+  document.querySelectorAll('.payload-line, .node, .arrow, .card, .term-line, .patient-card, .ok-line, .modal, .overlay, .field, .btn-primary')
+    .forEach((el) => el.classList.remove('show', 'press', 'flash', 'bump', 'new-row'));
+  document.getElementById('in-user').textContent = '';
+  document.getElementById('in-pass').textContent = '';
+  document.getElementById('in-captcha').textContent = '';
+  document.getElementById('m-nama').textContent = '';
+  document.getElementById('m-nik').textContent = '';
+  document.getElementById('m-alamat').textContent = '';
+  document.getElementById('m-patient').classList.remove('show');
+  document.getElementById('m-ok').classList.remove('show');
+  document.getElementById('overlay').classList.remove('show');
+  const extra = document.getElementById('row-rm3');
+  if (extra) extra.remove();
+  const c = document.getElementById('count-rm2');
+  if (c) { c.classList.remove('bump'); c.textContent = '0'; }
+  const rmCounter = document.getElementById('rm-counter');
+  if (rmCounter) rmCounter.textContent = 'RM0001';
+  document.getElementById('rm-note') && (document.getElementById('rm-note').textContent = 'pasien ke-1');
+  document.getElementById('db-term').innerHTML = '';
+  document.getElementById('test-term').innerHTML = '';
+  lastSpokenVoiceText = '';
+  VoiceEngine.stop();
+}
+
+async function typeInto(el, text, token, speed = 75) {
+  el.dataset.typing = '1';
+  for (let i = 0; i < text.length; i++) {
+    if (token !== runToken) return;
+    el.textContent += text[i];
+    SoundFX.tick();
+    await sleep(speed);
+  }
+}
+
+/* ============================================================
+   Scene Runners dengan Narasi Santai, Jelas, & Pacing Terukur
+============================================================ */
+const runners = {
+  // SCENE 1 - Intro
+  1: async (token) => {
+    await narrate(
+      'Selamat datang di <b>Medisin</b> — Sistem Informasi Rekam Medik &amp; Kunjungan Pasien berbasis Laravel 11/13, PHP 8.3, dan MySQL.',
+      'Selamat datang di Medisin. Sistem Informasi Rekam Medik dan Kunjungan Pasien berbasis Laravel, PHP delapan koma tiga, dan MySQL.',
+      token,
+      2500
+    );
+  },
+
+  // SCENE 2 - Demo Web Login & Payload
+  2: async (token) => {
+    const user = document.getElementById('in-user');
+    const pass = document.getElementById('in-pass');
+    const captchaInput = document.getElementById('in-captcha');
+    const loginBtn = document.getElementById('btn-login');
+
+    await narrate(
+      'Form login menampilkan <b>captcha gambar PNG</b> yang digenerate backend. Kode captcha tidak pernah dikirim sebagai teks biasa.',
+      'Form login menampilkan captcha gambar yang digenerate backend. Kode captcha tidak pernah dikirim sebagai teks biasa.',
+      token,
+      1200
+    );
+    if (token !== runToken) return;
+
+    await typeInto(user, 'admin', token, 80);
+    await sleep(500);
+    await typeInto(pass, '••••••••', token, 80);
+    await sleep(500);
+    await typeInto(captchaInput, 'K2MNS', token, 85);
+    await sleep(800);
+    if (token !== runToken) return;
+
+    loginBtn.classList.add('press');
+    SoundFX.click();
+    await sleep(280);
+    loginBtn.classList.remove('press');
+
+    for (let i = 1; i <= 4; i++) {
+      if (token !== runToken) return;
+      document.getElementById('pl-' + i).classList.add('show');
+      await sleep(550);
+    }
+    const plainRow = document.getElementById('pl-3');
+    plainRow.classList.add('flash');
+
+    await narrate(
+      'Pada DevTools Network Payload: <span class="key">captcha_code</span>, <span class="key">user_name</span>, dan <span class="key">password</span> terenkripsi AES-256-CBC. Hanya <span class="key">tokenCaptcha</span> yang plain.',
+      'Pada DevTools Network Payload, captcha code, user name, dan password terenkripsi AES 256 CBC. Hanya token captcha yang dikirim secara plain.',
+      token,
+      2400
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Payload ini persis seperti spesifikasi Security Test: plaintext sensitif tidak pernah meninggalkan browser tanpa enkripsi.',
+      'Payload ini persis seperti spesifikasi Security Test, di mana plaintext sensitif tidak pernah meninggalkan browser tanpa enkripsi.',
+      token,
+      2600
+    );
+  },
+
+  // SCENE 3 - Database Migration (Spacious & Calm Pacing)
+  3: async (token) => {
+    await narrate(
+      'Skema migrasi tabel pasiens &amp; users: kolom <span class="key">nik</span> dan <span class="key">email</span> bertipe text menyimpan ciphertext AES-256, memenuhi syarat Security Test.',
+      'Skema migrasi tabel pasiens dan users. Kolom NIK dan email bertipe text untuk menyimpan ciphertext AES 256, memenuhi spesifikasi Security Test.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Kolom <span class="key">nik_hash</span> dan <span class="key">email_hash</span> menyimpan SHA-256 sebagai blind index untuk validasi unik dan pencarian O(1) tanpa mendekripsi seluruh database.',
+      'Kolom nik hash dan email hash menyimpan SHA 256 sebagai blind index, untuk validasi unik dan pencarian cepat O 1 tanpa mendekripsi seluruh database.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Tabel <span class="key">kunjungans</span> terhubung foreign key ke pasiens dengan cascade delete, menghitung riwayat kunjungan secara otomatis.',
+      'Tabel kunjungans terhubung foreign key ke pasiens dengan cascade delete, menghitung riwayat kunjungan secara otomatis.',
+      token,
+      3000
+    );
+  },
+
+  // SCENE 4 - Routes & Rate Limiting
+  4: async (token) => {
+    await narrate(
+      'Dua endpoint publik diproteksi rate limiting: login 10 req/menit dan captcha 30 req/menit. Sisanya wajib Bearer token Sanctum.',
+      'Dua endpoint publik diproteksi rate limiting: login sepuluh request per menit, dan captcha tiga puluh request per menit. Sisanya wajib Bearer token Sanctum.',
+      token,
+      2400
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Route <span class="key">/pasien/search/{no_rekam_medik}</span> diletakkan sebelum wildcard <span class="key">/pasien/{pasien}</span> agar parameter tidak bentrok.',
+      'Route pasien search diletakkan sebelum route wildcard pasien, agar parameter nomor rekam medik tidak tertukar dengan ID pasien.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 5 - Model Pasien (Auto RM & Mutator)
+  5: async (token) => {
+    await narrate(
+      'Nomor Rekam Medik digenerate otomatis di event <b>creating</b> model, dijamin berjalan konsisten dari controller, seeder, maupun factory.',
+      'Nomor Rekam Medik digenerate otomatis di event creating model, dijamin berjalan konsisten dari controller, seeder, maupun factory.',
+      token,
+      1200
+    );
+    if (token !== runToken) return;
+
+    const counter = document.getElementById('rm-counter');
+    const note = document.getElementById('rm-note');
+    const steps = [
+      ['RM0001', 'pasien ke-1', 0],
+      ['RM0002', 'pasien ke-2', 2000],
+      ['RM0003', 'pasien ke-3', 2000],
+    ];
+    for (const [rm, label, wait] of steps) {
+      if (wait) await sleep(wait);
+      if (token !== runToken) return;
+      counter.textContent = rm;
+      note.textContent = label;
+      SoundFX.tick();
+    }
+    await sleep(1000);
+    if (token !== runToken) return;
+
+    await narrate(
+      'Fungsi generate membaca nomor tertinggi via regex dan memformatnya menjadi <span class="key">RM%04d</span> urut, seperti RM0001.',
+      'Fungsi generate membaca nomor tertinggi dengan regex dan memformatnya menjadi RM empat digit urut, seperti RM nol nol nol satu.',
+      token,
+      2400
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Mutator model mengenkripsi NIK ke ciphertext AES dan menghitung blind index SHA-256 secara atomik, tanpa jalur plaintext.',
+      'Mutator model mengenkripsi NIK ke ciphertext AES dan menghitung blind index SHA 256 secara atomik, tanpa jalur plaintext.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 6 - SecurityService AES-256-CBC
+  6: async (token) => {
+    const n1 = document.getElementById('p-node-1');
+    const a1 = document.getElementById('p-arr-1');
+    const n2 = document.getElementById('p-node-2');
+    const a2 = document.getElementById('p-arr-2');
+    const n3 = document.getElementById('p-node-3');
+
+    n1.classList.add('show'); await sleep(600); if (token !== runToken) return;
+    a1.classList.add('show'); await sleep(300); if (token !== runToken) return;
+    n2.classList.add('show', 'hot'); SoundFX.click(); await sleep(700); if (token !== runToken) return;
+    a2.classList.add('show'); await sleep(300); if (token !== runToken) return;
+    n3.classList.add('show', 'hot'); SoundFX.click();
+
+    await narrate(
+      'Enkripsi payload memakai <b>IV acak 16 byte</b> per request — dua teks yang sama selalu menghasilkan ciphertext berbeda.',
+      'Enkripsi payload menggunakan IV acak enam belas byte per request, sehingga dua teks yang identik akan selalu menghasilkan ciphertext berbeda.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Metode dekripsi backend mengenali beragam format: Base64 IV-prepended, CryptoJS Salted dari Postman, maupun Laravel Crypt standar.',
+      'Metode dekripsi di backend mengenali beragam format: Base64 IV-prepended, CryptoJS Salted dari Postman, maupun Laravel Crypt standar.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 7 - CaptchaService 4 Lapis
+  7: async (token) => {
+    await narrate(
+      'Captcha dirancang dengan konsep <b>defense in depth</b>: 4 lapis pertahanan anti-bot yang sangat kuat.',
+      'Captcha dirancang dengan konsep defense in depth, melalui empat lapis pertahanan anti bot yang sangat kuat.',
+      token,
+      1000
+    );
+    if (token !== runToken) return;
+
+    for (let i = 1; i <= 4; i++) {
+      if (token !== runToken) return;
+      document.getElementById('cc-' + i).classList.add('show');
+      SoundFX.click();
+      await sleep(650);
+    }
+    await sleep(800);
+    if (token !== runToken) return;
+
+    await narrate(
+      'Kode dirender sebagai gambar PNG terdistorsi. Backend hanya menyimpan SHA-256 yang terikat ke IP pemohon.',
+      'Kode dirender sebagai gambar PNG terdistorsi. Backend hanya menyimpan SHA 256 yang terikat ke alamat IP pemohon.',
+      token,
+      2400
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Verifikasi memakai perbandingan <span class="key">hash_equals</span> (anti timing attack) dan token langsung dihapus pada percobaan pertama.',
+      'Verifikasi menggunakan perbandingan hash equals anti timing attack, dan token langsung dihapus pada percobaan pertama.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 8 - FormRequest Validation
+  8: async (token) => {
+    await narrate(
+      'Pada LoginRequest, <span class="key">prepareForValidation</span> otomatis mendekripsi username, password, dan captcha sebelum validasi dievaluasi.',
+      'Pada LoginRequest, prepareForValidation otomatis mendekripsi username, password, dan captcha sebelum aturan validasi dievaluasi.',
+      token,
+      2400
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'StorePasienRequest memvalidasi NIK angka 10-20 digit dan mengecek duplikat via blind index <span class="key">nik_hash</span> tanpa dekripsi massal DB.',
+      'StorePasienRequest memvalidasi NIK sepuluh hingga dua puluh digit, dan mengecek duplikat via blind index tanpa mendekripsi seluruh baris database.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'StoreKunjunganRequest secara otomatis meresolve <span class="key">no_rekam_medik</span> menjadi pasien_id — klien cukup mengirimkan No RM saja.',
+      'StoreKunjunganRequest otomatis menerjemahkan nomor rekam medik menjadi pasien ID, sehingga klien cukup mengirimkan nomor rekam medik saja.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 9 - Controller withCount
+  9: async (token) => {
+    await narrate(
+      'PasienController memakai <span class="key">withCount</span> kunjungans sebagai jml_kunjungan: satu query agregat efisien, bebas masalah N+1.',
+      'PasienController menggunakan withCount kunjungans sebagai jumlah kunjungan, menghasilkan satu query agregat yang efisien dan bebas dari masalah N plus satu query.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Method <span class="key">findByRekamMedik</span> melayani modal Buat Kunjungan: mengembalikan data pasien seketika saat No RM diketikkan.',
+      'Method findByRekamMedik melayani modal Buat Kunjungan, mengembalikan data lengkap pasien seketika saat nomor rekam medik diketikkan.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 10 - Live UI Dashboard Simulation
+  10: async (token) => {
+    await narrate(
+      'Dashboard menampilkan tabel pasien lengkap dengan kolom <b>JML KUNJUNGAN</b> hasil agregat <span class="key">withCount</span>.',
+      'Dashboard menampilkan tabel pasien lengkap dengan kolom jumlah kunjungan yang dihitung otomatis dari riwayat kunjungan.',
+      token,
+      1500
+    );
+    if (token !== runToken) return;
+
+    /* --- Modal Tambah Pasien --- */
+    const overlay = document.getElementById('overlay');
+    const modal = document.getElementById('modal');
+    const title = document.getElementById('modal-title');
+    title.textContent = 'Tambah Pasien';
+    document.getElementById('m-hint').textContent = 'No Rekam Medik dibuat otomatis oleh sistem';
+    document.getElementById('m-nama-field').style.display = 'flex';
+    document.getElementById('m-nik-field').style.display = 'flex';
+    document.getElementById('m-alamat-field').style.display = 'flex';
+    document.getElementById('m-patient').classList.remove('show');
+    document.getElementById('m-ok').classList.remove('show');
+    overlay.classList.add('show');
+    modal.classList.add('show');
+
+    await narrate(
+      'Tambah Pasien: user hanya mengisi Nama, NIK, dan Alamat. <b>No Rekam Medik tidak diinput manual</b>.',
+      'Saat menambah pasien, user hanya mengisi Nama, NIK, dan Alamat. Nomor Rekam Medik digenerate otomatis oleh sistem.',
+      token,
+      1000
+    );
+    if (token !== runToken) return;
+
+    await typeInto(document.getElementById('m-nama'), 'Budi Santoso', token, 70);
+    await sleep(300);
+    await typeInto(document.getElementById('m-nik'), '3214124987654321', token, 45);
+    await sleep(300);
+    await typeInto(document.getElementById('m-alamat'), 'Jl. Merdeka No. 12', token, 55);
+    await sleep(700);
+    if (token !== runToken) return;
+
+    const submit = document.getElementById('m-submit');
+    submit.classList.add('press');
+    SoundFX.click();
+    await sleep(220);
+    submit.classList.remove('press');
+    overlay.classList.remove('show');
+
+    const tbody = document.getElementById('tbody');
+    const row = document.createElement('tr');
+    row.id = 'row-rm3';
+    row.className = 'new-row';
+    row.innerHTML = '<td>3</td><td>RM0003</td><td>Budi Santoso</td><td>Jl. Merdeka No. 12</td><td><span class="count">0</span></td>';
+    tbody.appendChild(row);
+    SoundFX.chime();
+
+    await narrate(
+      'Pasien tersimpan dengan <b>No Rekam Medik RM0003</b> secara otomatis dan berurutan.',
+      'Pasien Budi Santoso tersimpan dengan Nomor Rekam Medik RM nol nol nol tiga secara urut.',
+      token,
+      2200
+    );
+    if (token !== runToken) return;
+
+    /* --- Modal Buat Kunjungan --- */
+    title.textContent = 'Buat Kunjungan';
+    document.getElementById('m-hint').textContent = 'Masukkan No Rekam Medik pasien';
+    document.getElementById('m-nama').textContent = '';
+    document.getElementById('m-nik').textContent = '';
+    document.getElementById('m-alamat').textContent = '';
+    document.getElementById('m-nik-field').style.display = 'none';
+    document.getElementById('m-alamat-field').style.display = 'none';
+    document.getElementById('m-patient').classList.remove('show');
+    document.getElementById('m-ok').classList.remove('show');
+
+    overlay.classList.add('show');
+    await narrate(
+      'Buat Kunjungan: cukup ketik No Rekam Medik — <b>data pasien langsung muncul otomatis</b>.',
+      'Pada modal Buat Kunjungan, user hanya mengetikkan Nomor Rekam Medik, dan data pasien langsung terisi otomatis.',
+      token,
+      800
+    );
+    if (token !== runToken) return;
+
+    await typeInto(document.getElementById('m-nama'), 'RM0002', token, 95);
+    await sleep(500);
+    if (token !== runToken) return;
+
+    document.getElementById('m-patient-detail').innerHTML =
+      '<b>NURFAZA D.</b><br>NIK: 321412412355553<br>Alamat: Jl Wisata 2 No 18';
+    document.getElementById('m-patient').classList.add('show');
+    SoundFX.click();
+    await sleep(1500);
+    if (token !== runToken) return;
+
+    submit.classList.add('press');
+    SoundFX.click();
+    await sleep(200);
+    submit.classList.remove('press');
+    document.getElementById('m-ok').classList.add('show');
+    await sleep(700);
+    overlay.classList.remove('show');
+
+    const count = document.getElementById('count-rm2');
+    count.classList.add('bump');
+    count.textContent = '1';
+    SoundFX.chime();
+
+    await narrate(
+      'Kunjungan tersimpan &rarr; <b>JML KUNJUNGAN RM0002 otomatis bertambah 0 &rarr; 1</b>.',
+      'Kunjungan berhasil disimpan, dan jumlah kunjungan pasien Nurfaza otomatis bertambah dari nol menjadi satu.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 11 - MySQL Database Proof
+  11: async (token) => {
+    const term = document.getElementById('db-term');
+    const lines = [
+      '<span class="prompt">mysql&gt;</span> SELECT id, no_rekam_medik, nama_pasien, LEFT(nik, 34) as ciphertext_nik, LEFT(nik_hash, 16) as blind_idx FROM pasiens;',
+      '<span class="dim">+----+----------------+---------------+------------------------------------+------------------+</span>',
+      '<span class="dim">| id | no_rekam_medik | nama_pasien   | ciphertext_nik                     | blind_idx        |</span>',
+      '<span class="dim">+----+----------------+---------------+------------------------------------+------------------+</span>',
+      '|  1 | RM0001         | NURFAZA M.    | <span class="accent">eyJpdiI6IitncTJBYnVkcHd5QUdoSjN...</span>   | 4a7c81df0b98...  |',
+      '|  2 | RM0002         | NURFAZA D.    | <span class="accent">eyJpdiI6Ik0wOTl2bWUzeUVGRmxSbmY...</span>   | 92f8bc112a01...  |',
+      '<span class="dim">+----+----------------+---------------+------------------------------------+------------------+</span>',
+      '',
+      '<span class="prompt">mysql&gt;</span> SELECT id, username, LEFT(email, 34) as ciphertext_email, LEFT(email_hash, 16) FROM users;',
+      '<span class="dim">+----+----------+------------------------------------+------------------+</span>',
+      '|  1 | admin    | <span class="accent">eyJpdiI6Ik93Y3Uza3d0K1pMNDJHYVU...</span>   | 8c6976e5b541...  |',
+      '<span class="dim">+----+----------+------------------------------------+------------------+</span>',
+      '<span class="ok">&#10003; NIK &amp; Email tersimpan sebagai ciphertext AES-256 — plaintext tidak pernah disimpan di DB.</span>',
+    ];
+    for (const line of lines) {
+      if (token !== runToken) return;
+      const div = document.createElement('div');
+      div.className = 'term-line';
+      div.innerHTML = line || '&nbsp;';
+      term.appendChild(div);
+      SoundFX.tick();
+      requestAnimationFrame(() => div.classList.add('show'));
+      await sleep(280);
+    }
+    await narrate(
+      'Bukti database MySQL: kolom NIK dan email tersimpan dalam bentuk <b>ciphertext AES-256</b>.',
+      'Bukti langsung pada database MySQL: kolom NIK pada tabel pasiens dan kolom email pada tabel users tersimpan dalam bentuk ciphertext AES 256.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Blind index <span class="key">nik_hash</span> dan <span class="key">email_hash</span> (SHA-256) memungkinkan pencarian cepat tanpa mendekripsi database.',
+      'Kolom hash enam puluh empat karakter berfungsi sebagai blind index untuk pencarian cepat tanpa mendekripsi database.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 12 - Automated Test Suite
+  12: async (token) => {
+    const term = document.getElementById('test-term');
+    const lines = [
+      '<span class="prompt">$</span> php artisan test --compact',
+      '<span class="dim">   PASS </span> Tests\\Feature\\AuthApiTest        <span class="dim">(19 tests)</span>',
+      '<span class="dim">   PASS </span> Tests\\Feature\\PasienApiTest      <span class="dim">(18 tests)</span>',
+      '<span class="dim">   PASS </span> Tests\\Feature\\KunjunganApiTest   <span class="dim">(11 tests)</span>',
+      '<span class="dim">   PASS </span> Tests\\Unit\\ExampleTest          <span class="dim">(1 test)</span>',
+      '<span class="dim">   PASS </span> Tests\\Feature\\ExampleTest        <span class="dim">(1 test)</span>',
+      '',
+      '<span class="ok">&#10003; Tests:  50 passed (169 assertions)</span>',
+      '<span class="dim">  Duration: 2.18s</span>',
+    ];
+    for (const line of lines) {
+      if (token !== runToken) return;
+      const div = document.createElement('div');
+      div.className = 'term-line';
+      div.innerHTML = line || '&nbsp;';
+      term.appendChild(div);
+      SoundFX.tick();
+      requestAnimationFrame(() => div.classList.add('show'));
+      await sleep(320);
+    }
+    SoundFX.chime();
+    await narrate(
+      'Automated test suite: <b>50 test</b> dan <b>169 assertions</b> lolos seratus persen (100% PASS).',
+      'Automated test suite dengan PHPUnit: lima puluh unit dan feature test, serta seratus enam puluh sembilan assertion berhasil lolos seratus persen.',
+      token,
+      2500
+    );
+    if (token !== runToken) return;
+
+    await narrate(
+      'Mencakup seluruh skenario positif serta 23 negative test untuk validasi NIK, anti-bot captcha, dan payload security.',
+      'Pengujian mencakup seluruh skenario positif dan dua puluh tiga skenario negatif untuk validasi, keamanan payload, dan anti-bot.',
+      token,
+      2800
+    );
+  },
+
+  // SCENE 13 - Summary
+  13: async (token) => {
+    await narrate(
+      'Seluruh spesifikasi teknis Figma, catatan 1-4, serta Security Test berhasil diimplementasikan dengan standar produksi tertinggi.',
+      'Seluruh spesifikasi Figma, catatan teknis nomor satu sampai empat, serta pengujian keamanan payload dan database telah diimplementasikan dengan standar produksi tertinggi. Terima kasih.',
+      token,
+      3000
+    );
+  },
+};
+
+/* ============================================================
+   Scene Transition Manager (Adaptive & Non-Interrupting)
+============================================================ */
+async function runScene(index) {
+  const token = ++runToken;
+  current = index;
+  const scene = scenes[index];
+  const minDuration = Number(scene.dataset.duration || 12000);
+
+  scenes.forEach((s) => s.classList.remove('active'));
+  resetSceneAnimations();
+  captionHide();
+  scene.classList.add('active');
+  sceneLabel.textContent = (index + 1) + ' / ' + total;
+
+  sceneStart = performance.now();
+  paused = false;
+  btnPlay.textContent = 'Pause';
+
+  currentRunnerActive = true;
+  const runner = runners[index + 1];
+  if (runner) {
+    setTimeout(async () => {
+      if (token === runToken) {
+        try {
+          await runner(token);
+        } finally {
+          if (token === runToken) {
+            currentRunnerActive = false;
+          }
+        }
+      }
+    }, 450);
+  } else {
+    currentRunnerActive = false;
+  }
+
+  if (rafId) cancelAnimationFrame(rafId);
+  const tick = (now) => {
+    if (token !== runToken) return;
+    if (!paused) {
+      const elapsed = now - sceneStart;
+      progress.style.width = Math.min(100, (elapsed / minDuration) * 100) + '%';
+
+      // HANYA berpindah ke scene berikutnya jika:
+      // 1. Waktu minimal scene sudah lewat (elapsed >= minDuration)
+      // 2. DAN seluruh baris narasi suara sudah selesai tuntas (!currentRunnerActive)
+      if (elapsed >= minDuration && !currentRunnerActive) {
+        if (index + 1 < total) {
+          runScene(index + 1);
+        } else {
+          btnPlay.textContent = 'Replay';
+          progress.style.width = '100%';
+          // Auto-stop recording saat scene terakhir selesai
+          if (Recorder.recording) {
+            setTimeout(() => Recorder.stop(), 2500);
+          }
+        }
+        return;
+      }
+    }
+    rafId = requestAnimationFrame(tick);
+  };
+  rafId = requestAnimationFrame(tick);
+}
+
+/* ============================================================
+   Video Recorder — Simpan Langsung ke MP4
+   Menggunakan MediaRecorder + getDisplayMedia (Tab Capture)
+   Audio ditangkap otomatis (suara narasi + SFX)
+============================================================ */
+const Recorder = {
+  mediaRecorder: null,
+  chunks: [],
+  stream: null,
+  recording: false,
+  startTime: 0,
+  timerInterval: null,
+
+  getMimeType() {
+    // Prioritaskan MP4 (Chrome 114+), fallback ke WebM
+    const candidates = [
+      'video/mp4;codecs=avc1,opus',
+      'video/mp4;codecs=avc1',
+      'video/mp4',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ];
+    for (const mime of candidates) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mime)) {
+        return mime;
+      }
+    }
+    return 'video/webm';
+  },
+
+  getExtension(mime) {
+    return mime.includes('mp4') ? 'mp4' : 'webm';
+  },
+
+  updateTimer() {
+    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+    const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const ss = String(elapsed % 60).padStart(2, '0');
+    const el = document.getElementById('rec-timer');
+    if (el) el.textContent = mm + ':' + ss;
+  },
+
+  async start() {
+    if (this.recording) {
+      this.stop();
+      return;
+    }
+
+    try {
+      // 1. Minta izin capture tab saat ini (dengan audio)
+      const displayMediaOptions = {
+        video: {
+          displaySurface: 'browser',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 },
+        },
+        audio: true,
+      };
+
+      // preferCurrentTab untuk Chrome agar langsung memilih tab ini
+      if (navigator.mediaDevices.getDisplayMedia.length !== undefined) {
+        displayMediaOptions.preferCurrentTab = true;
+      }
+
+      this.stream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+
+      // 2. Jika Web Audio SoundFX aktif, gabungkan audio stream
+      if (SoundFX.ctx && SoundFX.ctx.state === 'running') {
+        try {
+          const audioDestination = SoundFX.ctx.createMediaStreamDestination();
+          // Hubungkan semua audio output ke destination baru
+          const gainNode = SoundFX.ctx.createGain();
+          gainNode.gain.value = 1.0;
+          gainNode.connect(audioDestination);
+          gainNode.connect(SoundFX.ctx.destination);
+
+          // Tambahkan audio tracks dari AudioContext ke stream
+          audioDestination.stream.getAudioTracks().forEach(track => {
+            this.stream.addTrack(track);
+          });
+        } catch (e) {
+          // Audio mixing opsional, lanjutkan tanpa error
+        }
+      }
+
+      // 3. Siapkan MediaRecorder
+      const mimeType = this.getMimeType();
+      const ext = this.getExtension(mimeType);
+
+      this.chunks = [];
+      this.mediaRecorder = new MediaRecorder(this.stream, {
+        mimeType: mimeType,
+        videoBitsPerSecond: 5000000, // 5 Mbps untuk kualitas tinggi
+      });
+
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          this.chunks.push(e.data);
+        }
+      };
+
+      this.mediaRecorder.onstop = () => {
+        // Buat blob dan download otomatis
+        const blob = new Blob(this.chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.download = 'Medisin_Demo_' + dateStr + '.' + ext;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // Tampilkan notifikasi
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 5000);
+
+        this.cleanup();
+      };
+
+      // Jika user menghentikan screen share dari browser
+      this.stream.getVideoTracks()[0].addEventListener('ended', () => {
+        if (this.recording) this.stop();
+      });
+
+      // 4. Mulai rekaman
+      this.mediaRecorder.start(1000); // chunk per detik
+      this.recording = true;
+      this.startTime = Date.now();
+      this.timerInterval = setInterval(() => this.updateTimer(), 1000);
+
+      // 5. Update UI
+      const btn = document.getElementById('btn-record');
+      const label = document.getElementById('rec-label');
+      const dot = document.getElementById('rec-dot');
+      const banner = document.getElementById('rec-banner');
+      if (btn) btn.classList.add('recording');
+      if (label) label.textContent = '⏹ Hentikan';
+      if (dot) dot.classList.add('live');
+      if (banner) banner.classList.add('show');
+
+      // 6. Aktifkan audio & mulai animasi dari Scene 1
+      activateAudio();
+      VoiceEngine.stop();
+      setTimeout(() => {
+        runScene(0);
+      }, 800);
+
+    } catch (err) {
+      // User membatalkan dialog atau error
+      console.warn('Rekaman dibatalkan:', err.message);
+      this.cleanup();
+    }
+  },
+
+  stop() {
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      this.mediaRecorder.stop();
+    }
+    this.recording = false;
+
+    // Update UI
+    const btn = document.getElementById('btn-record');
+    const label = document.getElementById('rec-label');
+    const dot = document.getElementById('rec-dot');
+    const banner = document.getElementById('rec-banner');
+    if (btn) btn.classList.remove('recording');
+    if (label) label.textContent = '🎬 Rekam MP4';
+    if (dot) dot.classList.remove('live');
+    if (banner) banner.classList.remove('show');
+
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  },
+
+  cleanup() {
+    if (this.stream) {
+      this.stream.getTracks().forEach(t => t.stop());
+      this.stream = null;
+    }
+    this.recording = false;
+    this.mediaRecorder = null;
+    this.chunks = [];
+
+    const btn = document.getElementById('btn-record');
+    const label = document.getElementById('rec-label');
+    const dot = document.getElementById('rec-dot');
+    const banner = document.getElementById('rec-banner');
+    if (btn) btn.classList.remove('recording');
+    if (label) label.textContent = '🎬 Rekam MP4';
+    if (dot) dot.classList.remove('live');
+    if (banner) banner.classList.remove('show');
+
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+};
+
+/* ============================================================
+   Audio & Autoplay Unlocker
+============================================================ */
+let audioActivated = false;
+
+function activateAudio() {
+  if (audioActivated) return;
+  audioActivated = true;
+  SoundFX.init();
+  SoundFX.resume();
+  VoiceEngine.init();
+
+  const banner = document.getElementById('voice-banner');
+  if (banner) {
+    banner.classList.add('hide');
+    setTimeout(() => banner.remove(), 450);
+  }
+
+  if (current === 0 && runners[1]) {
+    runners[1](runToken);
+  }
+}
+
+document.addEventListener('click', activateAudio, { once: true });
+document.addEventListener('keydown', activateAudio, { once: true });
+document.addEventListener('touchstart', activateAudio, { once: true });
+
+const bannerBtn = document.getElementById('btn-banner-ok');
+if (bannerBtn) {
+  bannerBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    activateAudio();
+  });
+}
+
+/* ============================================================
+   Controls & Event Listeners
+============================================================ */
+document.getElementById('btn-next').addEventListener('click', () => {
+  VoiceEngine.stop();
+  if (current + 1 < total) runScene(current + 1);
+});
+document.getElementById('btn-prev').addEventListener('click', () => {
+  VoiceEngine.stop();
+  if (current > 0) runScene(current - 1);
+});
+document.getElementById('btn-replay').addEventListener('click', () => {
+  VoiceEngine.stop();
+  runScene(0);
+});
+document.getElementById('btn-voice').addEventListener('click', () => {
+  activateAudio();
+  VoiceEngine.toggle();
+});
+document.getElementById('btn-speed').addEventListener('click', () => {
+  activateAudio();
+  VoiceEngine.cycleSpeed();
+});
+document.getElementById('btn-record').addEventListener('click', () => {
+  Recorder.start();
+});
+document.getElementById('btn-play').addEventListener('click', () => {
+  if (current === total - 1 && progress.style.width === '100%') {
+    VoiceEngine.stop();
+    runScene(0);
+    return;
+  }
+  paused = !paused;
+  if (paused) {
+    pausedAt = performance.now();
+    btnPlay.textContent = 'Play';
+    VoiceEngine.pause();
+  } else {
+    sceneStart += performance.now() - pausedAt;
+    btnPlay.textContent = 'Pause';
+    VoiceEngine.resume();
+  }
+});
+document.getElementById('btn-full').addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); document.getElementById('btn-play').click(); }
+  if (e.code === 'ArrowRight') document.getElementById('btn-next').click();
+  if (e.code === 'ArrowLeft') document.getElementById('btn-prev').click();
+  if (e.key === 'f' || e.key === 'F') document.getElementById('btn-full').click();
+  if (e.key === 'r' || e.key === 'R') document.getElementById('btn-replay').click();
+  if (e.key === 'v' || e.key === 'V') document.getElementById('btn-voice').click();
+  if (e.key === 's' || e.key === 'S') document.getElementById('btn-speed').click();
+});
+
+// Inisialisasi awal
+VoiceEngine.init();
+SoundFX.init();
+
+/* Start Scene 1 */
+runScene(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,713 @@
+{
+	"info": {
+		"_postman_id": "a8f349d1-0f4b-4b15-9c88-e9f02c6114a1",
+		"name": "Medisin REST API",
+		"description": "Postman Collection untuk REST API Medisin - Sistem Informasi Rekam Medik & Kunjungan Pasien.\n\nDilengkapi dengan fitur Security Test (Enkripsi Payload Username/Password/captcha_code & Enkripsi Database NIK/Email), Captcha Login (gambar + token one-time), otentikasi Bearer Token (Laravel Sanctum), auto-token script pada Login, pendaftaran pasien dengan auto-increment No Rekam Medik, pencarian pasien, dan pembuatan kunjungan.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Authentication & Security",
+			"item": [
+				{
+					"name": "Get Captcha (Token & Code)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"var jsonData = pm.response.json();",
+									"if (jsonData.data && jsonData.data.captcha_code) {",
+									"    pm.collectionVariables.set(\"captcha_code\", jsonData.data.captcha_code);",
+									"}",
+									"if (jsonData.data && jsonData.data.tokenCaptcha) {",
+									"    pm.collectionVariables.set(\"tokenCaptcha\", jsonData.data.tokenCaptcha);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/captcha?debug=1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"captcha"
+							],
+							"query": [
+								{
+									"key": "debug",
+									"value": "1",
+									"description": "Hanya berfungsi di environment non-production: mengembalikan captcha_code plaintext untuk testing manual API"
+								}
+							]
+						},
+						"description": "Membuat captcha baru (gambar PNG + token one-time, berlaku 5 menit, terikat IP client) yang wajib disertakan pada setiap request login. Secara default kode captcha TIDAK dikirim sebagai teks (hanya gambar). Query ?debug=1 mengembalikan captcha_code plaintext, hanya untuk environment non-production dengan flag CAPTCHA_DEBUG_ENABLED=true. Script Test otomatis menyimpan captcha_code dan tokenCaptcha ke collection variable."
+					},
+					"response": []
+				},
+				{
+					"name": "Login (Encrypted Payload - Security Test)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Fetch a fresh captcha (image + one-time token) before login",
+									"pm.sendRequest(pm.collectionVariables.get(\"base_url\") + \"/captcha?debug=1\", function (err, res) {",
+									"    if (!err && res) {",
+									"        var data = res.json().data;",
+									"        pm.collectionVariables.set(\"tokenCaptcha\", data.tokenCaptcha);",
+									"",
+									"        // Encrypt the captcha code (AES-256-CBC, IV + Ciphertext, Base64)",
+									"        var captchaKey = CryptoJS.SHA256(\"MedisinSecretKey2026PayloadAES!\");",
+									"        var captchaIv = CryptoJS.lib.WordArray.random(16);",
+									"        var encCode = CryptoJS.AES.encrypt(data.captcha_code, captchaKey, { iv: captchaIv });",
+									"        var fullCode = captchaIv.clone().concat(encCode.ciphertext);",
+									"        pm.collectionVariables.set(\"captcha_code\", CryptoJS.enc.Base64.stringify(fullCode));",
+									"    }",
+									"});",
+									"",
+									"// AES-256-CBC Payload Encryption using CryptoJS",
+									"var key = CryptoJS.SHA256(\"MedisinSecretKey2026PayloadAES!\");",
+									"var iv = CryptoJS.lib.WordArray.random(16);",
+									"",
+									"var encUser = CryptoJS.AES.encrypt(\"admin\", key, { iv: iv });",
+									"var encPass = CryptoJS.AES.encrypt(\"password\", key, { iv: iv });",
+									"",
+									"// Combine IV (16 bytes) + Ciphertext into single Base64 string",
+									"var fullUser = iv.clone().concat(encUser.ciphertext);",
+									"var fullPass = iv.clone().concat(encPass.ciphertext);",
+									"",
+									"pm.environment.set(\"encrypted_username\", CryptoJS.enc.Base64.stringify(fullUser));",
+									"pm.environment.set(\"encrypted_password\", CryptoJS.enc.Base64.stringify(fullPass));"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"var jsonData = pm.response.json();",
+									"if (jsonData.data && jsonData.data.token) {",
+									"    pm.collectionVariables.set(\"token\", jsonData.data.token);",
+									"    console.log(\"Token saved successfully from encrypted login\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_name\": \"{{encrypted_username}}\",\n    \"password\": \"{{encrypted_password}}\",\n    \"captcha_code\": \"{{captcha_code}}\",\n    \"tokenCaptcha\": \"{{tokenCaptcha}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"login"
+							]
+						},
+						"description": "Security Test: Mengirimkan username dan password yang terenkripsi AES-256-CBC pada payload request. Pre-request script secara otomatis mengambil captcha baru dan mengenkripsi captcha_code, username & password sebelum dikirim."
+					},
+					"response": []
+				},
+				{
+					"name": "Login (Plain Payload)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Fetch a fresh captcha (image + one-time token) before login",
+									"pm.sendRequest(pm.collectionVariables.get(\"base_url\") + \"/captcha?debug=1\", function (err, res) {",
+									"    if (!err && res) {",
+									"        var data = res.json().data;",
+									"        pm.collectionVariables.set(\"tokenCaptcha\", data.tokenCaptcha);",
+									"",
+									"        // Encrypt the captcha code (AES-256-CBC, IV + Ciphertext, Base64)",
+									"        var captchaKey = CryptoJS.SHA256(\"MedisinSecretKey2026PayloadAES!\");",
+									"        var captchaIv = CryptoJS.lib.WordArray.random(16);",
+									"        var encCode = CryptoJS.AES.encrypt(data.captcha_code, captchaKey, { iv: captchaIv });",
+									"        var fullCode = captchaIv.clone().concat(encCode.ciphertext);",
+									"        pm.collectionVariables.set(\"captcha_code\", CryptoJS.enc.Base64.stringify(fullCode));",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"var jsonData = pm.response.json();",
+									"if (jsonData.data && jsonData.data.token) {",
+									"    pm.collectionVariables.set(\"token\", jsonData.data.token);",
+									"    console.log(\"Token saved successfully: \" + jsonData.data.token);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"admin\",\n    \"password\": \"password\",\n    \"captcha_code\": \"{{captcha_code}}\",\n    \"tokenCaptcha\": \"{{tokenCaptcha}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"login"
+							]
+						},
+						"description": "Login menggunakan username 'admin' dan password 'password' biasa. Pre-request script otomatis mengambil captcha baru dan mengenkripsi captcha_code (username/password tetap plain untuk skenario ini). Script Test otomatis menyimpan token ke collection variable {{token}}."
+					},
+					"response": []
+				},
+				{
+					"name": "Security - Encrypt Payload Helper",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"admin\",\n    \"password\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/security/encrypt",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"security",
+								"encrypt"
+							]
+						},
+						"description": "Endpoint utilitas untuk menguji atau menghasilkan string terenkripsi AES-256-CBC dari payload input."
+					},
+					"response": []
+				},
+				{
+					"name": "User Profile (Me)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"me"
+							]
+						},
+						"description": "Mengambil informasi profil user yang sedang login."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/logout",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"logout"
+							]
+						},
+						"description": "Mencabut token autentikasi yang sedang aktif."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Pasien",
+			"item": [
+				{
+					"name": "Daftar Pasien (List Pasien)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/pasien",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"pasien"
+							]
+						},
+						"description": "Menampilkan seluruh daftar pasien beserta jumlah kunjungannya (JML KUNJUNGAN) sesuai tabel dashboard Figma."
+					},
+					"response": []
+				},
+				{
+					"name": "Cari Pasien (Filter/Search)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/pasien?search=NURFAZA",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"pasien"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "NURFAZA",
+									"description": "Cari berdasarkan nama, no rekam medik, atau NIK"
+								}
+							]
+						},
+						"description": "Pencarian pasien berdasarkan nama, no rekam medik, atau NIK."
+					},
+					"response": []
+				},
+				{
+					"name": "Cari Pasien by No Rekam Medik (Modal Buat Kunjungan)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/pasien/search/RM0001",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"pasien",
+								"search",
+								"RM0001"
+							]
+						},
+						"description": "Endpoint khusus untuk modal 'BUAT KUNJUNGAN' pada Figma. Mengambil detail pasien (Nama, NIK, Alamat) saat No Rekam Medik diinputkan."
+					},
+					"response": []
+				},
+				{
+					"name": "Tambah Pasien (Pendaftaran Pasien - Auto No RM)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nama_pasien\": \"Budi Santoso\",\n    \"nik\": \"3214124987654321\",\n    \"alamat\": \"Jl. Merdeka No. 12, Bandung\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/pasien",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"pasien"
+							]
+						},
+						"description": "Mendaftarkan pasien baru. NIK otomatis tersimpan terenkripsi di database. No Rekam Medik akan digenerate otomatis dengan format sequential RM0001, RM0002, RM0003, dst."
+					},
+					"response": []
+				},
+				{
+					"name": "Tambah Pasien (Custom No Rekam Medik)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"no_rekam_medik\": \"RM0099\",\n    \"nama_pasien\": \"Siti Rahmawati\",\n    \"nik\": \"3214124987659999\",\n    \"alamat\": \"Jl. Anggrek No. 5, Cimahi\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/pasien",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"pasien"
+							]
+						},
+						"description": "Mendaftarkan pasien dengan Nomor Rekam Medik manual/spesifik jika diperlukan."
+					},
+					"response": []
+				},
+				{
+					"name": "Detail Pasien (By ID)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/pasien/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"pasien",
+								"1"
+							]
+						},
+						"description": "Mengambil detail pasien beserta seluruh riwayat kunjungannya."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. Kunjungan",
+			"item": [
+				{
+					"name": "Buat Kunjungan (via No Rekam Medik)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"no_rekam_medik\": \"RM0002\",\n    \"keluhan\": \"Pemeriksaan tensi dan gula darah\",\n    \"catatan\": \"Kondisi umum baik\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/kunjungan",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"kunjungan"
+							]
+						},
+						"description": "Membuat kunjungan baru menggunakan input No Rekam Medik (sesuai form modal 'BUAT KUNJUNGAN' Figma)."
+					},
+					"response": []
+				},
+				{
+					"name": "Buat Kunjungan (via Pasien ID)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"pasien_id\": 1,\n    \"keluhan\": \"Konsultasi keluhan batuk berdahak\",\n    \"catatan\": \"Diberi resep obat batuk\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/kunjungan",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"kunjungan"
+							]
+						},
+						"description": "Membuat kunjungan baru dengan mengirimkan ID pasien secara langsung."
+					},
+					"response": []
+				},
+				{
+					"name": "Daftar Semua Kunjungan",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/kunjungan",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"kunjungan"
+							]
+						},
+						"description": "Menampilkan seluruh data riwayat kunjungan pasien yang tercatat."
+					},
+					"response": []
+				},
+				{
+					"name": "Filter Kunjungan Pasien (via Query Param)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/kunjungan?no_rekam_medik=RM0001",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"kunjungan"
+							],
+							"query": [
+								{
+									"key": "no_rekam_medik",
+									"value": "RM0001",
+									"description": "Filter kunjungan berdasarkan no rekam medik"
+								}
+							]
+						},
+						"description": "Menampilkan daftar kunjungan khusus untuk pasien dengan No Rekam Medik tertentu."
+					},
+					"response": []
+				},
+				{
+					"name": "Detail Kunjungan (By ID)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/kunjungan/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"kunjungan",
+								"1"
+							]
+						},
+						"description": "Menampilkan detail satu data kunjungan beserta relasi data pasiennya."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "captcha_code",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "tokenCaptcha",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "encrypted_username",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "encrypted_password",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
